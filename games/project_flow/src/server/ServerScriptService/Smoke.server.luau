@@ -4,7 +4,7 @@
 -- ReplicatedStorage.TestResults.smoke_math (value "PASS" or "FAIL ...").
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SmokeMath = require(ReplicatedStorage:WaitForChild("Flow"):WaitForChild("SmokeMath"))
+local SmokeMath = require(ReplicatedStorage:WaitForChild("SmokeMath"))
 
 local results = ReplicatedStorage:FindFirstChild("TestResults")
 if not results then

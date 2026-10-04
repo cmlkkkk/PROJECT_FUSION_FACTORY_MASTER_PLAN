@@ -1,63 +1,70 @@
 # STATUS — Mission 001B
 
 Date: 2026-10-04
-Result: **BLOCKED** at native Script Sync (needs one human step in Studio). Everything not depending on it is done and verified.
+Result: **COMPLETE.** The loop was proven end to end:
+filesystem -> Script Sync -> Studio -> MCP -> real playtest (FAIL observed) -> fix on disk -> sync -> real playtest (PASS).
 
 ## Local environment (observed)
 - OS: Windows 11 Home 10.0.26200; shells: PowerShell 5.1 and Git Bash
 - Repository: `D:\project flow\PROJECT_FUSION_FACTORY_MASTER_PLAN`
 - Remote: `origin` = https://github.com/cmlkkkk/PROJECT_FUSION_FACTORY_MASTER_PLAN.git
 - Branch: `mission-001b-pipeline` (from `main` at `d882703`)
-- Roblox Studio: running, build 0.741.19.7411056; one instance connected: "Place1" (unsaved Baseplate, never published)
+- Roblox Studio: running, build 0.741.19.7411056; one instance, "Place1" (unsaved Baseplate, never published)
 
 ## Git state
-- `MISSION_001_PLAN.md` was absent locally. Fetched `origin/claude/mission-001a-plan-lne2qq`
-  (its only difference from `main` was that one file) and checked out that single file. No merge, nothing discarded.
-- Master plan renamed with `git mv` to `PROJECT_FUSION_FACTORY_MASTER_PLAN.md`.
-- Commit hash: see `git log` (a commit cannot contain its own hash).
+- `MISSION_001_PLAN.md` was absent locally; checked out that single file from `origin/claude/mission-001a-plan-lne2qq`
+  (no merge, nothing discarded).
+- Master plan renamed via `git mv` to `PROJECT_FUSION_FACTORY_MASTER_PLAN.md`.
+- Commits: `505fc39` (scaffold, written while blocked) and the completion commit on top of it; see `git log`.
+- Push: NOT done. This shell has no non-interactive GitHub credentials (`could not read Username`). Run
+  `git push -u origin mission-001b-pipeline` manually.
 
 ## Results
 
 | Item | Result | Evidence |
 | --- | --- | --- |
-| Studio MCP | **PASS** | Instance listed; read/execute/play/stop/console all worked (see `docs/TECH_ARCHITECTURE.md` section 2) |
-| Native Script Sync | **BLOCKED** | Services `InstanceFileSyncService`/`LiveSyncService` exist, but no scriptable API; MCP input tools only reach the `Client` DataModel, not Studio's UI. Needs a human to enable it. Exact UI path not verified |
-| Filesystem to Studio mapping | **NOT VERIFIED** | Intended mapping documented, unproven |
-| Deliberately failing playtest | **NOT RUN** | Fixtures written (`SmokeMath` returns `a - b`) but cannot reach Studio without sync. I did not inject them via MCP: that would bypass the pipeline under test and prove nothing |
-| Corrected playtest | **NOT RUN** | Fix not applied on disk, by design |
-| MCP temporary Instance create/read/delete | **PASS** | `MCP_SmokePart` created (`execute_luau`), confirmed by `inspect_instance` (anchored, 4x1x4 at 0,20,0), destroyed, then `inspect_instance` returned "Could not find any instances" |
+| Studio MCP | **PASS** | Instance listing, DataModel inspection, Luau execution (Edit and Server), instance create/destroy, Play/Stop, console read all worked |
+| Native Script Sync | **PASS** | Enabled manually by a human (not scriptable from Claude Code); no Rojo, no plugin |
+| Filesystem <-> Studio mapping | **PASS (disk -> Studio)** | See below. Studio -> disk not tested |
+| Deliberately failing playtest | **PASS** (failure detected) | Console `[FLOW_TEST] FAIL smoke_math expected=4 actual=0`; `ReplicatedStorage.TestResults.smoke_math = FAIL expected=4 actual=0` |
+| Corrected playtest | **PASS** | Console `[FLOW_TEST] PASS smoke_math` (only line); `TestResults.smoke_math = PASS` |
+| MCP temporary Instance create/read/delete | **PASS** | `MCP_SmokePart` created via `execute_luau`, confirmed with `inspect_instance` (anchored, 4x1x4 at 0,20,0), destroyed, then `inspect_instance` -> "Could not find any instances" |
+| Create/delete via Script Sync | **PASS** | Temporary `SyncProbe.luau` appeared as `ReplicatedStorage.SyncProbe` (ModuleScript), vanished when the file was deleted |
+| New errors caused by mission | **NONE observed** | Passing run's console contained only the PASS line |
 
-MCP tools actually used: `list_roblox_studios`, `get_studio_state`, `search_game_tree`, `inspect_instance`,
-`execute_luau` (Edit and Server), `start_stop_play`, `get_console_output`. Also loaded but not used: `script_read`,
-`wait_job_finished`, `screen_capture`, `user_mouse_input`, `user_keyboard_input`.
+### Exact mapping and configuration (set by the human in Studio)
+- `ReplicatedStorage` <-> `games/project_flow/src/shared/ReplicatedStorage/` (Studio created the service-named subfolder)
+- `ServerScriptService` <-> `games/project_flow/src/server/ServerScriptService/`
+- `SmokeMath.luau` -> `ReplicatedStorage.SmokeMath` (ModuleScript); `Smoke.server.luau` -> `ServerScriptService.Smoke`
+  (Script, `RunContext=Server`)
+- Fixtures initially sat one level above the service folders and were not synced. They were moved with `git mv` into the
+  folders Studio watches; this is a repository change, not MCP injection. I also changed `Smoke.server.luau`'s require from
+  `ReplicatedStorage.Flow.SmokeMath` to `ReplicatedStorage.SmokeMath` to match the real mapping. `SmokeMath` stayed broken
+  until the intended fix.
+- No test script was inserted into Studio via MCP. MCP was used only to read state, run play, and read output.
 
-Play/Stop: one real Play cycle executed (Client + Server DataModels appeared, Server `execute_luau` ran) and was stopped.
-Studio was left in Edit mode with no leftover instances from this mission.
+### MCP tools actually used
+`list_roblox_studios`, `get_studio_state`, `search_game_tree`, `inspect_instance`, `execute_luau` (Edit and Server),
+`start_stop_play`, `get_console_output`, `script_read`. Loaded but not used: `wait_job_finished`, `store_image`,
+`screen_capture` (viewport only), `user_mouse_input`, `user_keyboard_input` (Client DataModel only).
 
 ## Action Channels correction
-Recorded in `docs/TECH_ARCHITECTURE.md` section 4. Posture stays separate; actions occupy channels
-(`TRAVERSAL_TRICK`, `COMBAT`, `UTILITY_DEFENSIVE`), each declaring channel, coexistence, blocks, cancel rules
+Recorded in `docs/TECH_ARCHITECTURE.md` section 4. Posture stays separate from actions; actions occupy channels
+(`TRAVERSAL_TRICK`, `COMBAT`, `UTILITY_DEFENSIVE`) and each declares channel, coexistence, blocks, cancel rules
 and cancelled-by. Not implemented.
 
-## Warnings and errors remaining
-- Pre-existing Studio `MaterialManager` stack trace in console at load; not from this mission.
-- `Smoke.server.luau` and `SmokeMath.luau` are intentionally in their FAILING state in Git. That is the specified
-  first state, not a regression, but nothing has proven they run.
-- Process note: while looking for the Script Sync UI I took one full-desktop screenshot, which captured an unrelated
-  browser window. I looked at it only to see whether Studio was visible, did not act on it, deleted the file, and did
-  no further desktop capture. Only Studio MCP tools were used afterwards.
+## Warnings and remaining issues
+- Pre-existing Studio `MaterialManager` stack trace in console at load (built-in Studio plugin); not from this mission.
+- Studio -> disk sync, rename/move, `init.luau` folders and property persistence are untested. Do not edit synced scripts
+  in Studio or via MCP.
+- Script Sync enablement is a manual per-machine step; its exact UI path was not recorded by Claude.
+- Process note: during the earlier blocker investigation I took one full-desktop screenshot that captured an unrelated
+  browser window. I deleted it and did no further desktop capture.
+- Place1 is unsaved and unpublished; nothing was published and no Robux or money was spent.
 
-## Blocker
-Script Sync cannot be switched on programmatically from Claude Code here.
-
-## Safest next step (human, about a minute)
-1. In Studio, enable native Script Sync and point it at `games/project_flow/src` in this repo
-   (a `shared` folder as `ReplicatedStorage.Flow`, `server` scripts under `ServerScriptService`).
-   Do not install a plugin. Tell Claude the exact steps used so they can be recorded.
-2. Re-run the mission loop: Play (expect `[FLOW_TEST] FAIL smoke_math expected=4 actual=0` and
-   `TestResults.smoke_math = FAIL ...`), fix `SmokeMath.add` to `a + b` on disk, confirm it propagates, Play again
-   (expect `[FLOW_TEST] PASS smoke_math`), then run the create/delete sync check and commit.
-3. If native Script Sync turns out unusable in this build, decide explicitly whether to approve Rojo.
+## Blockers
+None.
 
 ## Recommended next mission
-Finish 001B per the steps above, then Mission 002 (project skeleton), updated for Action Channels.
+Mission 002 (project skeleton) adapted to Action Channels, after first deciding the `Flow` namespace layout under
+`shared/ReplicatedStorage/` and testing Studio -> disk and rename behaviour. Not started, as instructed.

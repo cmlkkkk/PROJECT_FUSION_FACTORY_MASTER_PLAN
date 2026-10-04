@@ -13,12 +13,15 @@ Git repo (source of truth)
    -> real playtest -> observe -> fix on disk -> sync -> playtest -> commit
 ```
 
-Intended mapping (NOT yet verified, because Script Sync could not be enabled; see section 3):
+Verified mapping (Script Sync enabled manually by a human in Studio; configured folders are the parents):
 
-| Repo path | Studio location |
-| --- | --- |
-| `games/project_flow/src/shared/*.luau` | `ReplicatedStorage.Flow.*` (ModuleScript) |
-| `games/project_flow/src/server/*.server.luau` | `ServerScriptService.*` (Script) |
+| Studio service | Configured folder | Folder Studio actually syncs | Example |
+| --- | --- | --- | --- |
+| `ReplicatedStorage` | `games/project_flow/src/shared` | `games/project_flow/src/shared/ReplicatedStorage/` | `SmokeMath.luau` -> `ReplicatedStorage.SmokeMath` (ModuleScript) |
+| `ServerScriptService` | `games/project_flow/src/server` | `games/project_flow/src/server/ServerScriptService/` | `Smoke.server.luau` -> `ServerScriptService.Smoke` (Script, `RunContext=Server`) |
+
+Files placed directly in the configured folder (outside the service-named subfolder) are NOT synced.
+Naming: `Name.luau` -> ModuleScript, `Name.server.luau` -> Script with Server RunContext; the suffix is stripped.
 
 ## 2. Observed MCP capabilities (Studio build 0.741.19.7411056, Windows 11)
 
@@ -44,16 +47,40 @@ only one. `Smoke.server.luau` writes both.
 Known noise, not caused by this project: a `MaterialManager ... debug.profileEnd()` stack trace appears in the
 console at Studio load (built-in Studio plugin).
 
-## 3. Native Script Sync: availability finding
+## 3. Native Script Sync: observed behavior (build 0.741.19.7411056)
 
-- `game:GetService("InstanceFileSyncService")` and `LiveSyncService` exist in this Studio build (service present).
-- No members are readable or scriptable through `execute_luau`, `inspect_instance` (empty property list) or
-  `ReflectionService:GetClass` (returned nothing). No setting named ScriptSync/LiveSync exists in `settings().Studio`.
-- The only MCP tools that could drive UI accept the `Client` DataModel only, so they cannot operate the Explorer
-  context menu, Beta Features or the native folder-picker that Script Sync needs.
-- Therefore enabling Script Sync, and choosing the repo folder, needs one manual human step in Studio's UI.
-  The exact menu location in this build was NOT verified.
-- Rojo was not installed, and no plugin was installed.
+Enabling: not scriptable from Claude Code. `InstanceFileSyncService` / `LiveSyncService` exist but expose no members
+through `execute_luau`, `inspect_instance` or `ReflectionService`, and the MCP input tools only reach the `Client`
+DataModel. A human enabled it in Studio's UI and chose the two folders above (exact menu path not recorded by Claude).
+No Rojo and no third-party plugin were used.
+
+Observed after enabling:
+1. Studio itself created the service-named subfolders `shared/ReplicatedStorage/` and `server/ServerScriptService/`
+   (both empty, so nothing on disk was overwritten). Fixtures that sat one level above were invisible to Studio
+   until moved (`git mv`) into those subfolders. This is a disk-side action, not MCP injection.
+2. Disk -> Studio, create: moved files appeared within one MCP round trip, with the right classes.
+   Source lengths matched the files on disk (282 / 1010 chars).
+3. Disk -> Studio, edit: changing `a - b` to `a + b` in `SmokeMath.luau` was visible in Studio via `script_read`
+   with no manual step, before the second playtest.
+4. Disk -> Studio, create then delete: a temporary `SyncProbe.luau` appeared as `ReplicatedStorage.SyncProbe`
+   (ModuleScript) and disappeared after the file was removed. Verified with `search_game_tree`.
+5. Playtest-created objects (`ReplicatedStorage.TestResults`) are not persisted into Edit mode and not written to disk.
+6. Not tested: Studio -> disk direction, simultaneous edits on both sides, rename/move, `init.luau` folder modules,
+   attribute/property persistence (e.g. `Disabled`), behaviour while the place is unsaved vs saved. Treat the
+   direction Studio -> disk as unverified; never edit synced scripts inside Studio or via MCP.
+
+Consequence for the old plan: `MISSION_001_PLAN.md`'s `ReplicatedStorage.Flow` namespace does not exist by default.
+To get one, create a `Flow/` folder inside `shared/ReplicatedStorage/` (unverified, needed by Mission 002).
+
+## 3b. Observed smoke loop (real playtests, Server DataModel + console)
+
+| Step | Evidence |
+| --- | --- |
+| Playtest 1 (broken `a - b`) | Console: `[FLOW_TEST] FAIL smoke_math expected=4 actual=0`; `TestResults.smoke_math = FAIL expected=4 actual=0` |
+| Fix on disk, no MCP involvement | `script_read` showed `return a + b` in Studio |
+| Playtest 2 | Console: `[FLOW_TEST] PASS smoke_math` (only line); `TestResults.smoke_math = PASS` |
+
+Both evidence channels (console and `TestResults`) agreed in both runs.
 
 ## 4. Architectural correction: Action Channels (replaces "Posture + one active Action")
 
@@ -93,5 +120,6 @@ must also check channel conflicts (two nodes that block each other with no exit)
 channel. Not implemented in Mission 001B, by design.
 
 ## 5. Open items
-- Enable and verify native Script Sync with a human step (see `STATUS.md`).
-- Then run the loop in the mission brief: broken `SmokeMath` -> failing playtest -> disk fix -> passing playtest.
+- Verify Studio -> disk direction and rename/move behaviour before Mission 002 relies on a nested layout.
+- Decide the `Flow` namespace layout under `shared/ReplicatedStorage/`.
+- Script Sync enablement is a manual, per-machine Studio step; document it in the contributor setup when one exists.
