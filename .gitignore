@@ -1,0 +1,9 @@
+# Machine-specific / local-only
+.claude/settings.local.json
+*.rbxl.lock
+*.rbxlx.lock
+.env
+.env.*
+*.log
+Thumbs.db
+.DS_Store
